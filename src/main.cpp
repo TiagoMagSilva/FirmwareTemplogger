@@ -190,6 +190,33 @@ void Task_Recebe_Serial(void *pvParameters)
     }
 }
 
+void configWifi(void)
+{
+    WiFi.disconnect();
+
+    String _SSID = EEPROM.readString(0);
+    String _PASSWORD = EEPROM.readString(50);
+
+    Serial.println(Montar_Checksum_CRC16("0," + _SSID + "," + _PASSWORD + ","));
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(_SSID, _PASSWORD);
+
+    uint8_t time500milisX = 0;
+    do
+    {
+        vTaskDelay(500);
+        Serial.print(".wf .");
+        time500milisX++;
+    } while ((WiFi.status() != WL_CONNECTED) && (time500milisX < 10));
+
+    if ((WiFi.status() != WL_CONNECTED))
+        Serial.println("erro wifi");
+
+    IPAddress IP = WiFi.localIP();
+    Serial.printf("\nWiFi IP address: %s\n", IP.toString());
+}
+
 void setup()
 {
     // start serial port

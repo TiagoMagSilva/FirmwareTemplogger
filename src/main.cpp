@@ -295,5 +295,44 @@ void loop()
 
     Serial.println(Montar_Checksum_CRC16("1," + String(Temp1) + "," + String(Temp2) + ","));
 
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        if (client.connect(server, 80))
+        {
+            Serial.println("CLIENT CONECTED");
+
+            String postStr = apiKey;
+
+            postStr += "&field1=";
+            postStr += String(Temp1);
+            postStr += "&field2=";
+            postStr += String(Temp2);
+
+            postStr += "\r\n\r\n";
+            client.print("POST /update HTTP/1.1\n");
+            vTaskDelay(100);
+            client.print("Host: api.thingspeak.com\n");
+            vTaskDelay(100);
+            client.print("Connection: close\n");
+            vTaskDelay(100);
+            client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
+            vTaskDelay(100);
+            client.print("Content-Type: application/x-www-form-urlencoded\n");
+            vTaskDelay(100);
+            client.print("Content-Length: ");
+            vTaskDelay(100);
+            client.print(postStr.length());
+            vTaskDelay(100);
+            client.print("\n\n");
+            vTaskDelay(100);
+            client.print(postStr);
+            vTaskDelay(100);
+        }
+
+        client.stop();
+    }
+    else
+        configWifi();
+
     delay(1000);
 }

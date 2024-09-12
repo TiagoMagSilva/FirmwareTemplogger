@@ -15,6 +15,8 @@ String apiKey = "SUA_API_KEY_AQUI";     // SUA_API_KEY_AQUI
 const char *server = "api.thingspeak.com";
 WiFiClient client;
 
+SemaphoreHandle_t Mutex_LeituraSensores;
+
 // Data wire is plugged TO GPIO 4
 #define ONE_WIRE_BUS 15
 
@@ -29,6 +31,8 @@ int numberOfDevices;
 
 // We'll use this variable to store a found device address
 DeviceAddress tempDeviceAddress;
+
+float GetTemp(uint8_t Sensor);
 
 // function to print a device address
 void printAddress(DeviceAddress deviceAddress)
@@ -184,6 +188,8 @@ void Task_Recebe_Serial(void *pvParameters)
         {
             timealive = millis();
             Serial.println(Montar_Checksum_CRC16("2,1," + String(WiFi.status() == WL_CONNECTED ? "1" : "0") + ","));
+
+            Serial.println(Montar_Checksum_CRC16("1," + String(GetTemp(0), 2) + "," + String(GetTemp(1), 2) + ","));
         }
 
         vTaskDelay(50);
@@ -221,6 +227,8 @@ void setup()
 {
     // start serial port
     Serial.begin(9600);
+
+    Mutex_LeituraSensores = xSemaphoreCreateMutex();
 
     xTaskCreatePinnedToCore(
         Task_Recebe_Serial,
@@ -270,6 +278,7 @@ void setup()
 
 void loop()
 {
+    xSemaphoreTake(Mutex_LeituraSensores, portMAX_DELAY);
     sensors.requestTemperatures(); // Send the command to get temperatures
 
     // Loop through each device, print out temperature data
@@ -292,6 +301,7 @@ void loop()
 
     sensors.getAddress(tempDeviceAddress, 1);
     float Temp2 = sensors.getTempC(tempDeviceAddress);
+    xSemaphoreGive(Mutex_LeituraSensores);
 
     Serial.println(Montar_Checksum_CRC16("1," + String(Temp1) + "," + String(Temp2) + ","));
 
@@ -332,7 +342,20 @@ void loop()
         client.stop();
     }
     else
-        configWifi();
+      configWifi();
 
-    delay(1000);
+    vTaskDelay(pdMS_TO_TICKS(300000));
+}
+
+//Sensor = 0 ou 1
+float GetTemp(uint8_t Sensor)
+{
+  xSemaphoreTake(Mutex_LeituraSensores, portMAX_DELAY);
+  sensors.requestTemperatures(); // Send the command to get temperatures
+
+  sensors.getAddress(tempDeviceAddress, Sensor);
+  float Temp = sensors.getTempC(tempDeviceAddress);
+  xSemaphoreGive(Mutex_LeituraSensores);
+
+  return Temp;
 }

@@ -183,7 +183,7 @@ void Task_Recebe_Serial(void *pvParameters)
         if (millis() - timealive > 1000)
         {
             timealive = millis();
-            Serial.println(Montar_Checksum_CRC16("2,1,"));
+            Serial.println(Montar_Checksum_CRC16("2,1," + String(WiFi.status() == WL_CONNECTED ? "1" : "0") + ","));
         }
 
         vTaskDelay(50);

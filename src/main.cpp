@@ -9,6 +9,11 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <EEPROM.h>
+#include <WiFi.h>
+
+String apiKey = "SUA_API_KEY_AQUI";     // SUA_API_KEY_AQUI
+const char *server = "api.thingspeak.com";
+WiFiClient client;
 
 // Data wire is plugged TO GPIO 4
 #define ONE_WIRE_BUS 15

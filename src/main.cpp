@@ -3,8 +3,10 @@
   Complete project details at https://RandomNerdTutorials.com
 *********/
 
-// Endereço do sensor 1: 28B07B75D0013CED
-// Endereço do sensor 2: 287DA475D0013C09
+#define Add_Sense1 0x28B07B75D0013CED //Posição 1
+#define Add_Sense2 0x287DA475D0013C09 //Posição 3
+#define Add_Sense3 0x28608D48F6F73CB0 //Posição 0
+#define Add_Sense4 0x28E95B49F6FB3CCC //Posição 2
 
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -31,6 +33,7 @@ int numberOfDevices;
 
 // We'll use this variable to store a found device address
 DeviceAddress tempDeviceAddress;
+uint8_t OrdemNoBarramento[4]; //Posição 0, Sensor 1. Posição 1, Sensor 2 ...
 
 float GetTemp(uint8_t Sensor);
 
@@ -189,7 +192,7 @@ void Task_Recebe_Serial(void *pvParameters)
             timealive = millis();
             Serial.println(Montar_Checksum_CRC16("2,1," + String(WiFi.status() == WL_CONNECTED ? "1" : "0") + ","));
 
-            Serial.println(Montar_Checksum_CRC16("1," + String(GetTemp(0), 2) + "," + String(GetTemp(1), 2) + ","));
+            Serial.println(Montar_Checksum_CRC16("1," + String(GetTemp(1), 2) + "," + String(GetTemp(3), 2) + "," + String(GetTemp(0), 2) + "," + String(GetTemp(2), 2) + ","));
         }
 
         vTaskDelay(50);
@@ -296,14 +299,23 @@ void loop()
       }
     }*/
 
-    sensors.getAddress(tempDeviceAddress, 0);
+    sensors.getAddress(tempDeviceAddress, 1);
     float Temp1 = sensors.getTempC(tempDeviceAddress);
 
-    sensors.getAddress(tempDeviceAddress, 1);
+    sensors.getAddress(tempDeviceAddress, 3);
     float Temp2 = sensors.getTempC(tempDeviceAddress);
+    
+
+    sensors.getAddress(tempDeviceAddress, 0);
+    float Temp3 = sensors.getTempC(tempDeviceAddress);
+   
+
+    sensors.getAddress(tempDeviceAddress, 2);
+    float Temp4 = sensors.getTempC(tempDeviceAddress);
+
     xSemaphoreGive(Mutex_LeituraSensores);
 
-    Serial.println(Montar_Checksum_CRC16("1," + String(Temp1) + "," + String(Temp2) + ","));
+    Serial.println(Montar_Checksum_CRC16("1," + String(Temp1) + "," + String(Temp2) + "," + String(Temp3) + "," + String(Temp4) + ","));
 
     if (WiFi.status() == WL_CONNECTED)
     {
@@ -317,6 +329,10 @@ void loop()
             postStr += String(Temp1);
             postStr += "&field2=";
             postStr += String(Temp2);
+            postStr += "&field3=";
+            postStr += String(Temp3);
+            postStr += "&field4=";
+            postStr += String(Temp4);
 
             postStr += "\r\n\r\n";
             client.print("POST /update HTTP/1.1\n");
@@ -342,20 +358,19 @@ void loop()
         client.stop();
     }
     else
-      configWifi();
+        configWifi();
 
     vTaskDelay(pdMS_TO_TICKS(300000));
 }
 
-//Sensor = 0 ou 1
-float GetTemp(uint8_t Sensor)
+float GetTemp(uint8_t Sensor) //Sensor contem a posição do sensor no vetor de devices
 {
-  xSemaphoreTake(Mutex_LeituraSensores, portMAX_DELAY);
-  sensors.requestTemperatures(); // Send the command to get temperatures
+    xSemaphoreTake(Mutex_LeituraSensores, portMAX_DELAY);
+    sensors.requestTemperatures(); // Send the command to get temperatures
 
-  sensors.getAddress(tempDeviceAddress, Sensor);
-  float Temp = sensors.getTempC(tempDeviceAddress);
-  xSemaphoreGive(Mutex_LeituraSensores);
+    sensors.getAddress(tempDeviceAddress, Sensor);
+    float Temp = sensors.getTempC(tempDeviceAddress);
+    xSemaphoreGive(Mutex_LeituraSensores);
 
-  return Temp;
+    return Temp;
 }

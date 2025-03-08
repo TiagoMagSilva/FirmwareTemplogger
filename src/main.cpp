@@ -8,14 +8,18 @@
 #define Add_Sense3 0x28608D48F6F73CB0 //Posição 0
 #define Add_Sense4 0x28E95B49F6FB3CCC //Posição 2
 
+#include <Arduino.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <EEPROM.h>
 #include <WiFi.h>
 
-String apiKey = "SUA_API_KEY_AQUI";     // SUA_API_KEY_AQUI
+String apiKey; // Vem do software
 const char *server = "api.thingspeak.com";
 WiFiClient client;
+
+long tempo_envio;
+long aux_tempo_envio = 0;
 
 SemaphoreHandle_t Mutex_LeituraSensores;
 
@@ -27,6 +31,8 @@ OneWire oneWire(ONE_WIRE_BUS);
 
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
+
+float Temp1, Temp2, Temp3, Temp4;
 
 // Number of temperature devices found
 int numberOfDevices;
@@ -150,20 +156,28 @@ void QuebrarTrama(String trama)
 
     switch (Identificador)
     {
-    case 0: // SSID,Senha
-        SSID = getValue(trama, ',', 1);
-        Senha = getValue(trama, ',', 2);
+        case 0: // SSID,Senha
+            SSID = getValue(trama, ',', 1);
+            Senha = getValue(trama, ',', 2);
 
-        EEPROM.writeString(0, SSID);
-        EEPROM.commit();
+            EEPROM.writeString(0, SSID);
+            EEPROM.commit();
 
-        EEPROM.writeString(50, Senha);
-        EEPROM.commit();
+            EEPROM.writeString(50, Senha);
+            EEPROM.commit();
+            break;
+        case 3: //API_Key e Tempo
+            apiKey = getValue(trama, ',', 1);
+            tempo_envio = 1000 * getValue(trama, ',', 2).toInt();
 
-        break;
+            EEPROM.writeString(100, apiKey);
+            EEPROM.commit();
 
-    default:
-        break;
+            EEPROM.writeLong(150, tempo_envio);
+            EEPROM.commit();
+            break;
+        default:
+            break;
     }
 }
 
@@ -187,15 +201,14 @@ void Task_Recebe_Serial(void *pvParameters)
         }
 
         // Enviando alive para aplicação
-        if (millis() - timealive > 1000)
+        if ((millis() - timealive) > 1000)
         {
             timealive = millis();
             Serial.println(Montar_Checksum_CRC16("2,1," + String(WiFi.status() == WL_CONNECTED ? "1" : "0") + ","));
-
-            Serial.println(Montar_Checksum_CRC16("1," + String(GetTemp(1), 2) + "," + String(GetTemp(3), 2) + "," + String(GetTemp(0), 2) + "," + String(GetTemp(2), 2) + ","));
+            vTaskDelay(100);
+            Serial.println(Montar_Checksum_CRC16("1," + String(Temp1, 2) + "," + String(Temp2, 2) + "," + String(Temp3, 2) + "," + String(Temp4, 2) + ","));
         }
-
-        vTaskDelay(50);
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -233,18 +246,17 @@ void setup()
 
     Mutex_LeituraSensores = xSemaphoreCreateMutex();
 
-    xTaskCreatePinnedToCore(
-        Task_Recebe_Serial,
-        "Task_Recebe_Serial",
-        10000,
-        NULL,
-        1,
-        NULL,
-        1);
+    EEPROM.begin(300);
 
-    EEPROM.begin(100);
+    vTaskDelay(500);
+
+    apiKey = EEPROM.readString(100);
+    tempo_envio = EEPROM.readLong(150);
 
     Serial.println(Montar_Checksum_CRC16("0," + EEPROM.readString(0) + "," + EEPROM.readString(50) + ","));
+    vTaskDelay(500);
+
+    Serial.println(Montar_Checksum_CRC16("3," + apiKey + "," + tempo_envio/1000 + ","));
 
     // Start up the library
     sensors.begin();
@@ -277,6 +289,15 @@ void setup()
             Serial.print(" but could not detect address. Check power and cabling");
         }
     }
+
+    xTaskCreatePinnedToCore(
+        Task_Recebe_Serial,
+        "Task_Recebe_Serial",
+        5000,
+        NULL,
+        1,
+        NULL,
+        0);
 }
 
 void loop()
@@ -300,67 +321,69 @@ void loop()
     }*/
 
     sensors.getAddress(tempDeviceAddress, 1);
-    float Temp1 = sensors.getTempC(tempDeviceAddress);
+    Temp1 = sensors.getTempC(tempDeviceAddress);
 
     sensors.getAddress(tempDeviceAddress, 3);
-    float Temp2 = sensors.getTempC(tempDeviceAddress);
-    
+    Temp2 = sensors.getTempC(tempDeviceAddress);    
 
     sensors.getAddress(tempDeviceAddress, 0);
-    float Temp3 = sensors.getTempC(tempDeviceAddress);
-   
+    Temp3 = sensors.getTempC(tempDeviceAddress);   
 
     sensors.getAddress(tempDeviceAddress, 2);
-    float Temp4 = sensors.getTempC(tempDeviceAddress);
+    Temp4 = sensors.getTempC(tempDeviceAddress);
 
     xSemaphoreGive(Mutex_LeituraSensores);
 
-    Serial.println(Montar_Checksum_CRC16("1," + String(Temp1) + "," + String(Temp2) + "," + String(Temp3) + "," + String(Temp4) + ","));
+    //Serial.println(Montar_Checksum_CRC16("1," + String(Temp1) + "," + String(Temp2) + "," + String(Temp3) + "," + String(Temp4) + ","));
 
-    if (WiFi.status() == WL_CONNECTED)
+    if((millis() - aux_tempo_envio) > tempo_envio)
     {
-        if (client.connect(server, 80))
+        aux_tempo_envio = millis();
+        if (WiFi.status() == WL_CONNECTED)
         {
-            Serial.println("CLIENT CONECTED");
+            if (client.connect(server, 80))
+            {
+                Serial.println("CLIENT CONECTED. SENDING");
 
-            String postStr = apiKey;
+                String postStr = apiKey;
 
-            postStr += "&field1=";
-            postStr += String(Temp1);
-            postStr += "&field2=";
-            postStr += String(Temp2);
-            postStr += "&field3=";
-            postStr += String(Temp3);
-            postStr += "&field4=";
-            postStr += String(Temp4);
+                postStr += "&field1=";
+                postStr += String(Temp1);
+                postStr += "&field2=";
+                postStr += String(Temp2);
+                postStr += "&field3=";
+                postStr += String(Temp3);
+                postStr += "&field4=";
+                postStr += String(Temp4);
 
-            postStr += "\r\n\r\n";
-            client.print("POST /update HTTP/1.1\n");
-            vTaskDelay(100);
-            client.print("Host: api.thingspeak.com\n");
-            vTaskDelay(100);
-            client.print("Connection: close\n");
-            vTaskDelay(100);
-            client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
-            vTaskDelay(100);
-            client.print("Content-Type: application/x-www-form-urlencoded\n");
-            vTaskDelay(100);
-            client.print("Content-Length: ");
-            vTaskDelay(100);
-            client.print(postStr.length());
-            vTaskDelay(100);
-            client.print("\n\n");
-            vTaskDelay(100);
-            client.print(postStr);
-            vTaskDelay(100);
+                postStr += "\r\n\r\n";
+                client.print("POST /update HTTP/1.1\n");
+                vTaskDelay(100);
+                client.print("Host: api.thingspeak.com\n");
+                vTaskDelay(100);
+                client.print("Connection: close\n");
+                vTaskDelay(100);
+                client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
+                vTaskDelay(100);
+                client.print("Content-Type: application/x-www-form-urlencoded\n");
+                vTaskDelay(100);
+                client.print("Content-Length: ");
+                vTaskDelay(100);
+                client.print(postStr.length());
+                vTaskDelay(100);
+                client.print("\n\n");
+                vTaskDelay(100);
+                client.print(postStr);
+                vTaskDelay(100);
+            }
+
+            client.stop();
         }
+        else
+            configWifi();
+    }    
 
-        client.stop();
-    }
-    else
-        configWifi();
-
-    vTaskDelay(pdMS_TO_TICKS(300000));
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
 float GetTemp(uint8_t Sensor) //Sensor contem a posição do sensor no vetor de devices
